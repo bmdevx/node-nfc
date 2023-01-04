@@ -550,7 +550,7 @@ class ISO_14443_3A_Card extends Card {
                 KEY_B: null
             }
 
-            var keys = tryKeys.subarray();
+            var keys = tryKeys.slice();
 
             const checkKey = (keyType, key) => {
                 this.authenticate(this.getStartBlock(sectorId), keyType, key)
@@ -558,7 +558,7 @@ class ISO_14443_3A_Card extends Card {
                         if (keyType == KEY_TYPE_A) {
                             this.setKey(KEY_TYPE_A, key, sectorId);
                             dks.KEY_A = key;
-                            keys = tryKeys.subarray();
+                            keys = tryKeys.slice();
                             checkKey(KEY_TYPE_B, keys.pop());
                         } else {
                             this.setKey(KEY_TYPE_B, key, sectorId);
@@ -571,7 +571,7 @@ class ISO_14443_3A_Card extends Card {
                             if (keys.length > 0) {
                                 checkKey(keyType, keys.pop());
                             } else if (keyType == KEY_TYPE_A) {
-                                keys = tryKeys.subarray();
+                                keys = tryKeys.slice();
                                 checkKey(KEY_TYPE_B, keys.pop());
                             } else {
                                 if (dks.KEY_A || dks.KEY_B) {
@@ -593,7 +593,7 @@ class ISO_14443_3A_Card extends Card {
     tryGetAllKeys(tryKeys = DEFAULT_KEYS) {
         return new Promise((res, rej) => {
             const totalSectors = this.getTotalSectors();
-            var cSector = 0, asks = {}, keys = tryKeys.subarray();
+            var cSector = 0, asks = {}, keys = tryKeys.slice();
 
             const getKeyAtSector = (sectorNum) => {
                 this.tryGetKeys(keys, sectorNum)
