@@ -1,0 +1,33 @@
+{
+  "name": "node-nfc",
+  "version": "0.1.0",
+  "description": "NFC Devices and Tools for NodeJS",
+  "main": "/src/index.js",
+  "scripts": {
+    "test": "mocha \"test/**/*.js\""
+  },
+  "keywords": [
+    "nfc",
+    "node",
+    "ndef",
+    "acr122u",
+    "acr125u"
+  ],
+  "author": "bmdevx",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bmdevx/node-nfc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bmdevx/node-nfc/issues"
+  },
+  "homepage": "https://github.com/bmdevx/node-nfc#readme",
+  "dependencies": {
+    "@aaroncheung430/pcsclite": "^0.6.3"
+  },
+  "devDependencies": {
+    "mocha": "^9.2.2",
+    "should": "^13.2.3"
+  }
+}
