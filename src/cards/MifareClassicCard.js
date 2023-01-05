@@ -42,23 +42,23 @@ class MifareClassicCard extends ISO_14443_3A_Card {
         return BLOCK_SIZE;
     }
 
-    getStartBlock(sectorId) {
-        return MifareClassicCard.getMifareClassicStartBlock(this.CardTypeId, sectorId);
+    getStartBlock(sectorID) {
+        return MifareClassicCard.getMifareClassicStartBlock(this.CardTypeId, sectorID);
     }
 
-    static getMifareClassicStartBlock(cardTypeId, sectorId) {
+    static getMifareClassicStartBlock(cardTypeId, sectorID) {
         if (cardTypeId == CARD_TYPE_IDS.Mifare_1K) {
-            if (sectorId >= 0 && sectorId < MIFARE_1K_TOTAL_SECTORS) {
-                return sectorId * BLOCKS_IN_SMALL_SECTOR;
+            if (sectorID >= 0 && sectorID < MIFARE_1K_TOTAL_SECTORS) {
+                return sectorID * BLOCKS_IN_SMALL_SECTOR;
             } else {
                 throw 'Invalid Sector Id';
             }
         } else if (cardTypeId == CARD_TYPE_IDS.Mifare_4K) {
-            if (sectorId >= 0 && sectorId < MIFARE_4K_TOTAL_SECTORS) {
-                if (sectorId >= 0 && sectorId < MIFARE_4K_TOTAL_SMALL_SECTORS) {
-                    return sectorId * BLOCKS_IN_SMALL_SECTOR;
+            if (sectorID >= 0 && sectorID < MIFARE_4K_TOTAL_SECTORS) {
+                if (sectorID >= 0 && sectorID < MIFARE_4K_TOTAL_SMALL_SECTORS) {
+                    return sectorID * BLOCKS_IN_SMALL_SECTOR;
                 } else {
-                    return MIFARE_4K_TOTAL_SMALL_SECTORS + ((sectorId - MIFARE_4K_TOTAL_SMALL_SECTORS) * BLOCKS_IN_LARGE_SECTOR);
+                    return MIFARE_4K_TOTAL_SMALL_SECTORS + ((sectorID - MIFARE_4K_TOTAL_SMALL_SECTORS) * BLOCKS_IN_LARGE_SECTOR);
                 }
             } else {
                 throw 'Invalid Sector Id';
@@ -68,25 +68,25 @@ class MifareClassicCard extends ISO_14443_3A_Card {
         }
     }
 
-    getSectorSize(sectorId) {
-        return MifareClassicCard.getMifareClassicSectorSize(this.CardTypeId, sectorId);
+    getSectorSize(sectorID) {
+        return MifareClassicCard.getMifareClassicSectorSize(this.CardTypeId, sectorID);
     }
 
-    static getMifareClassicSectorSize(cardTypeId, sectorId) {
-        return (cardTypeId == CARD_TYPE_IDS.Mifare_4K && sectorId >= MIFARE_4K_TOTAL_SMALL_SECTORS) ?
+    static getMifareClassicSectorSize(cardTypeId, sectorID) {
+        return (cardTypeId == CARD_TYPE_IDS.Mifare_4K && sectorID >= MIFARE_4K_TOTAL_SMALL_SECTORS) ?
             LARGE_SECTOR_SIZE : SMALL_SECTOR_SIZE;
     }
 
-    getSectorDataSize(sectorId) {
+    getSectorDataSize(sectorID) {
         if (this.CardTypeId == CARD_TYPE_IDS.Mifare_1K) {
-            if (sectorId >= 0 && sectorId < MIFARE_1K_TOTAL_SECTORS) {
+            if (sectorID >= 0 && sectorID < MIFARE_1K_TOTAL_SECTORS) {
                 return MIFARE_1K_SECTOR_DATA_SIZE;
             } else {
                 rej('Invalid Sector Id');
             }
         } else if (this.CardTypeId == CARD_TYPE_IDS.Mifare_4K) {
-            if (sectorId >= 0 && sectorId < MIFARE_4K_TOTAL_SECTORS) {
-                if (sectorId >= 0 && sectorId < MIFARE_4K_TOTAL_SMALL_SECTORS) {
+            if (sectorID >= 0 && sectorID < MIFARE_4K_TOTAL_SECTORS) {
+                if (sectorID >= 0 && sectorID < MIFARE_4K_TOTAL_SMALL_SECTORS) {
                     return MIFARE_4K_SMALL_SECTOR_DATA_SIZE;
                 } else {
                     return MIFARE_4K_LARGE_SECTOR_DATA_SIZE;
@@ -104,8 +104,8 @@ class MifareClassicCard extends ISO_14443_3A_Card {
     }
 
 
-    parseSector(sectorId, startBlockNum, response, sectorSize) {
-        return MifareClassicSector.parse(sectorId, startBlockNum, response, sectorSize == SMALL_SECTOR_SIZE)
+    parseSector(sectorID, startBlockNum, response, sectorSize) {
+        return MifareClassicSector.parse(sectorID, startBlockNum, response, sectorSize == SMALL_SECTOR_SIZE)
     }
 
 
@@ -139,20 +139,20 @@ class MifareClassicTrailerBlock {
 }
 
 class MifareClassicSector extends CardSector {
-    constructor(rawBytes, sectorId, startBlockNum, data, trailer) {
-        super(rawBytes, sectorId, startBlockNum, data);
+    constructor(rawBytes, sectorID, startBlockNum, data, trailer) {
+        super(rawBytes, sectorID, startBlockNum, data);
         this._trailer = trailer;
     }
 
     get Trailer() { return this._trailer; }
 
-    static parse(sectorId, startBlockNum, byteArr, isSmallSector = true) {
+    static parse(sectorID, startBlockNum, byteArr, isSmallSector = true) {
         return new MifareClassicSector(
             byteArr,
-            sectorId,
+            sectorID,
             startBlockNum,
             isSmallSector ?
-                (sectorId == 0 ? byteArr.subarray(BLOCK_SIZE, 48) : byteArr.subarray(0, 48)) :
+                (sectorID == 0 ? byteArr.subarray(BLOCK_SIZE, 48) : byteArr.subarray(0, 48)) :
                 (byteArr.subarray(0, 241)),
             isSmallSector ?
                 new MifareClassicTrailerBlock(
@@ -167,23 +167,23 @@ class MifareClassicSector extends CardSector {
         );
     }
 
-    static create(sectorId, data, trailer = null) {
+    static create(sectorID, data, trailer = null) {
         var rawBytes = null;
-        const startBlockId = MifareClassicCard.getMifareClassicStartBlock(CARD_TYPE_IDS.Mifare_4K, sectorId);
+        const startBlockId = MifareClassicCard.getMifareClassicStartBlock(CARD_TYPE_IDS.Mifare_4K, sectorID);
 
         if (!(data instanceof Buffer)) {
             data = Buffer.alloc(0);
         }
 
         if (trailer) {
-            Buffer.concat([data], (sectorId >= MIFARE_4K_TOTAL_SMALL_SECTORS ? LARGE_SECTOR_SIZE : SMALL_SECTOR_SIZE));
-            const sectorSize = MifareClassicCard.getMifareClassicSectorSize(CARD_TYPE_IDS.Mifare_4K, sectorId);
+            Buffer.concat([data], (sectorID >= MIFARE_4K_TOTAL_SMALL_SECTORS ? LARGE_SECTOR_SIZE : SMALL_SECTOR_SIZE));
+            const sectorSize = MifareClassicCard.getMifareClassicSectorSize(CARD_TYPE_IDS.Mifare_4K, sectorID);
             rawBytes.write(trailer.RawBytes, sectorSize - BLOCK_SIZE);
         }
 
         return new MifareClassicSector(
             rawBytes,
-            sectorId,
+            sectorID,
             startBlockId,
             data,
             trailer);

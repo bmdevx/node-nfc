@@ -15,7 +15,7 @@ class ISO_14443_4_Device extends Card {
         return DEFAULT_LARGE_BLOCK_SIZE;
     }
 
-    getSectorSize(sectorId) {
+    getSectorSize(sectorID) {
         return DEFAULT_LARGE_SECTOR_SIZE;
     }
 

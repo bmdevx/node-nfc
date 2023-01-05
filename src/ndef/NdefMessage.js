@@ -1,6 +1,5 @@
 const utils = require('../utils');
 const {
-    HEADER_FLAGS,
     NdefHeader,
     NdefRecord,
     TextRecord,
@@ -12,7 +11,9 @@ const {
 } = require('./NdefRecords');
 
 const {
-    TNF_VALUES,
+    HEADER_FLAGS,
+    TLV_TYPES,
+    TNF_CODES: TNF_VALUES,
     WELL_KNOWN_TYPES,
     EXTERNAL_TYPES,
     MEDIA_TYPES
@@ -38,7 +39,7 @@ class NdefMessage {
         return this._records.length;
     }
 
-    static fromBytes(byteArr, skipHeaderInfo = true) {
+    static fromBytes(byteArr) {
         const msg = new NdefMessage();
 
         var idx = 0;
@@ -46,17 +47,29 @@ class NdefMessage {
         var recordNumber = 1;
         var dataEnd = byteArr.length;
 
-        if (skipHeaderInfo) {
-            if (byteArr[3] == 0xFF) {
-                dataEnd = byteArr[3] + byteArr[4] + byteArr[5];
-                idx = 6;
-            } else if (byteArr[3] == 0x3b) {
-                dataEnd = byteArr[3];
-                idx = 4;
-            }
+        while (byteArr[idx] != TLV_TYPES.NDEF_MSG) {
+            idx++;
         }
 
-        while (idx < byteArr.length && (!skipHeaderInfo || idx < dataEnd)) {
+        if (byteArr[++idx] == 0xFF) {
+            dataEnd = byteArr.readUint16BE(idx + 1) + idx + 3;
+            idx += 3;
+        } else {
+            dataEnd = byteArr[idx] + idx;
+            idx++
+        }
+
+        // if (skipHeaderInfo) {
+        //     if (byteArr[3] == 0xFF) {
+        //         dataEnd = byteArr[3] + byteArr[4] + byteArr[5];
+        //         idx = 6;
+        //     } else if (byteArr[3] == 0x3b) {
+        //         dataEnd = byteArr[3];
+        //         idx = 4;
+        //     }
+        // }
+
+        while (idx < byteArr.length && idx < dataEnd) {
             const headerByte = byteArr[idx];
 
             if (header || utils.hasFlag(headerByte, HEADER_FLAGS.MESSAGE_BEGIN)) {
@@ -105,15 +118,15 @@ class NdefMessage {
                         case TNF_VALUES.WELL_KNOWN: {
                             switch (type) {
                                 case WELL_KNOWN_TYPES.TEXT: { //txt
-                                    msg.addRecord(new TextRecord(header, payload, id, type, recordNumber));
+                                    msg.addRecord(TextRecord.fromBytes(payload, id, recordNumber));
                                     break;
                                 }
                                 case WELL_KNOWN_TYPES.URI: { //uri
-                                    msg.addRecord(new UriRecord(header, payload, id, type, recordNumber));
+                                    msg.addRecord(UriRecord.fromBytes(payload, id, recordNumber));
                                     break;
                                 }
                                 default:
-                                    msg.addRecord(new NdefRecord(header, payload, id, type, recordNumber));
+                                    msg.addRecord(new NdefRecord(payload, id, header.TypeNameFormat, type, recordNumber));
                                     break;
                             }
                             break;
@@ -121,16 +134,16 @@ class NdefMessage {
                         case TNF_VALUES.MEDIA: {
                             switch (type) {
                                 case MEDIA_TYPES.VCARD:
-                                    msg.addRecord(new VCardRecord(header, payload, id, type, recordNumber));
+                                    msg.addRecord(VCardRecord.fromBytes(payload, id, recordNumber));
                                     break;
                                 case MEDIA_TYPES.BLUETOOTH:
-                                    msg.addRecord(new BlueToothRecord(header, payload, id, type, recordNumber));
+                                    msg.addRecord(BlueToothRecord.fromBytes(payload, id, recordNumber));
                                     break;
                                 case MEDIA_TYPES.WIFI:
-                                    msg.addRecord(new WiFiRecord(header, payload, id, type, recordNumber));
+                                    msg.addRecord(WiFiRecord.fromBytes(payload, id, recordNumber));
                                     break;
                                 default:
-                                    msg.addRecord(new NdefRecord(header, payload, id, type, recordNumber));
+                                    msg.addRecord(new NdefRecord(payload, id, header.TypeNameFormat, type, recordNumber));
                                     break
                             }
                             break;
@@ -138,10 +151,10 @@ class NdefMessage {
                         case TNF_VALUES.EXTERNAL: {
                             switch (type) {
                                 case EXTERNAL_TYPES.ANDROID_APP:
-                                    msg.addRecord(new AndroidAppRecord(header, payload, id, type, recordNumber));
+                                    msg.addRecord(AndroidAppRecord.fromBytes(payload, id, recordNumber));
                                     break;
                                 default:
-                                    msg.addRecord(new NdefRecord(header, payload, id, type, recordNumber));
+                                    msg.addRecord(new NdefRecord(payload, id, header.TypeNameFormat, type, recordNumber));
                                     break
                             }
                             break;
@@ -151,7 +164,7 @@ class NdefMessage {
                         case TNF_VALUES.UNCHANGED:
                         case TNF_VALUES.RESERVED:
                         default:
-                            msg.addRecord(new NdefRecord(header, payload, id, type, recordNumber));
+                            msg.addRecord(new NdefRecord(payload, id, header.TypeNameFormat, type, recordNumber));
                             break;
                         case TNF_VALUES.EMPTY: break;
                     }
@@ -183,7 +196,7 @@ class NdefMessage {
 
         this.Records.forEach(record => {
             const payload = record.toBytes();
-            var flags = record.Header.TypeNameFormat;
+            var flags = record.TypeNameFormat;
 
             //set BEGIN & END FLAG
             if (recordCount == 0)
@@ -204,13 +217,16 @@ class NdefMessage {
             chunks.push(Buffer.from([flags]));
 
             //Type Length
-            const rt = record.Type;
             chunks.push(Buffer.from([record.Type ? record.Type.length : 0]));
 
             //Payload Length
-            chunks.push((payload.length < 255) ?
-                Buffer.from([payload.length]) :
-                Buffer.alloc(4).writeInt32BE(payload.length));
+            if (payload.length < 255)
+                chunks.push(Buffer.from([payload.length]))
+            else {
+                var b = Buffer.alloc(4);
+                b.writeUInt32BE(payload.length, 0);
+                chunks.push(b);
+            }
 
             //ID Length
             if (record.ID != null && record.ID.length > 0)
@@ -218,11 +234,11 @@ class NdefMessage {
 
             //Type
             if (record.Type != null && record.Type.length > 0)
-                chunks.push(Buffer.from(record.Type));
+                chunks.push(Buffer.from(record.Type, 'utf8'));
 
             //ID
             if (record.ID != null && record.ID.length > 0)
-                chunks.push(Buffer.from(record.ID));
+                chunks.push(record.ID);
 
             //Payload
             chunks.push(payload);

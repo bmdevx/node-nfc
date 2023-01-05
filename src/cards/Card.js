@@ -29,6 +29,9 @@ const {
 const BasicCommands = require('./commands/BasicCommands');
 const ApduCommand = require('../ApduCommand');
 
+const { Mutex } = require('async-mutex');
+
+const tmutex = new Mutex();
 
 class Card {
     _atr = null;
@@ -49,6 +52,8 @@ class Card {
         this._atr = atr;
         this._type = type;
         this._standard = standard;
+
+        this._mutex = new Mutex();
     }
 
 
@@ -106,13 +111,18 @@ class Card {
             throw new TransmitError(CARD_NOT_CONNECTED, 'No connection available.');
         }
 
-        return new Promise((resolve, reject) => {
-            this._reader.transmit(data, responseLength, this._connection.protocol, (err, response) => {
-                if (err) {
-                    return reject(new TransmitError(FAILURE, 'An error occurred while transmitting.', err));
-                }
-                return resolve(response);
-            });
+        return new Promise((res, rej) => {
+            tmutex
+                .acquire()
+                .then(release => {
+                    this._reader.transmit(data, responseLength, this._connection.protocol, (err, response) => {
+                        if (err) {
+                            rej(new TransmitError(FAILURE, 'An error occurred while transmitting.', err));
+                        }
+                        res(response);
+                        release();
+                    });
+                });
         });
     }
 
@@ -159,9 +169,7 @@ class Card {
                     .then(values => {
                         res(Buffer.concat(values, length));
                     })
-                    .catch(err => {
-                        rej(err);
-                    });
+                    .catch(rej);
             }
 
             // APDU CMD: Read Binary Blocks
@@ -299,19 +307,19 @@ class Card {
         return DEFAULT_BLOCK_SIZE;
     }
 
-    getStartBlock(sectorId) {
-        if (sectorId >= 0 && sectorId < DEFAULT_TOTAL_SECTORS) {
-            startBlockNum = sectorId * DEFAULT_BLOCKS_IN_SECTOR;
+    getStartBlock(sectorID) {
+        if (sectorID >= 0 && sectorID < DEFAULT_TOTAL_SECTORS) {
+            startBlockNum = sectorID * DEFAULT_BLOCKS_IN_SECTOR;
         } else {
             rej('Invalid Sector Id');
         }
     }
 
-    getSectorSize(sectorId) {
+    getSectorSize(sectorID) {
         return DEFAULT_SECTOR_SIZE;
     }
 
-    getSectorDataSize(sectorId) {
+    getSectorDataSize(sectorID) {
         return DEFAULT_SECTOR_SIZE;
     }
 
@@ -327,22 +335,22 @@ class Card {
 
 
 class CardSector {
-    constructor(rawBytes, sectorId, startBlockNum, data) {
+    constructor(rawBytes, sectorID, startBlockNum, data) {
         this._rawBytes = rawBytes;
-        this._sectorId = sectorId;
+        this._sectorID = sectorID;
         this._startBlockNum = startBlockNum;
         this._data = data;
     }
 
     get RawBytes() { return this._rawBytes; }
-    get SectorId() { return this._sectorId; }
+    get SectorID() { return this._sectorID; }
     get Data() { return this._data; }
     get StartBlockNum() { return this._startBlockNum; }
 
-    static parse(sectorId, startBlockNum, byteArr) {
+    static parse(sectorID, startBlockNum, byteArr) {
         return new CardSector(
             byteArr,
-            sectorId,
+            sectorID,
             startBlockNum,
             byteArr
         );

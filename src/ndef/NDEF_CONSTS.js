@@ -7,10 +7,16 @@ const TLV_TYPES = {
     TERMINATOR: 0xFE
 }
 
-/**
- * Type Name Format values
- */
-const TNF_VALUES = {
+const HEADER_FLAGS = {
+    MESSAGE_BEGIN: 0x80,
+    MESSAGE_END: 0x40,
+    CHUNKED: 0x20,
+    SHORT_RECORD: 0x10,
+    ID_LENGTH_PRESENT: 0x08,
+    MASK_TNF: 0x07
+}
+
+const TNF_CODES = {
     EMPTY: 0x00,
     WELL_KNOWN: 0x01,
     MEDIA: 0x02,
@@ -20,6 +26,18 @@ const TNF_VALUES = {
     UNCHANGED: 0x06,
     RESERVED: 0x07
 }
+
+const TNF_VALUES = {
+    0: 'EMPTY',
+    1: 'WELL_KNOWN',
+    2: 'MEDIA',
+    3: 'ABSOLUTE_URI',
+    4: 'EXTERNAL',
+    5: 'UNKNOWN',
+    6: 'UNCHANGED',
+    7: 'RESERVED'
+}
+
 
 const WELL_KNOWN_TYPES = {
     TEXT: 'T',
@@ -37,14 +55,11 @@ const MEDIA_TYPES = {
 }
 
 
-const HEADER_FLAGS = {
-    MESSAGE_BEGIN: 0x80,
-    MESSAGE_END: 0x40,
-    CHUNKED: 0x20,
-    SHORT_RECORD: 0x10,
-    ID_LENGTH_PRESENT: 0x08,
-    MASK_TNF: 0x07
+const TEXT_ENCODING_TYPE = {
+    UTF8: 0,
+    UTF16: 1
 }
+
 
 const URI_PREFIX_CODES = {
     NONE: 0x00,
@@ -125,6 +140,33 @@ const URI_PREFIXES = {
     0x23: 'urn:nfc:',
 }
 
+
+const BLUETOOTH_ATTRIBUTES = {
+    0x01: 'Flags',
+    0x02: 'Incomplete List of 16-bit Service Class UUIDs',
+    0x03: 'Complete List of 16-bit Service Class UUIDs',
+    0x04: 'Incomplete List of 32-bit Service Class UUIDs',
+    0x05: 'Complete List of 32-bit Service Class UUIDs',
+    0x06: 'Incomplete List of 128-bit Service Class UUIDs',
+    0x07: 'Complete List of 128-bit Service Class UUIDs',
+    0x08: 'Shortened Local Name',
+    0x09: 'Complete Local Name',
+    0x0D: 'Class of Device',
+    0x0E: 'Simple Pairing Hash C',
+    0x0F: 'Simple Pairing Randomizer R',
+    0x10: 'Security Manager TK Value',
+    0x11: 'Security Manager Out of Band Flags',
+    0x19: 'Appearance',
+    0x22: 'LE Secure Connections Confirmation Value',
+    0x23: 'LE Secure Connections Random Value',
+
+    0x1B: 'LE Bluetooth Device Address',
+    0x1C: 'LE Role',
+    0x1D: 'Simple Pairing Hash C-256',
+    0x1E: 'Simple Pairing Randomizer R-256',
+    0xFF: 'Manufacturer Specific Data'
+}
+
 const WIFI_FIELDS = {
     CREDENTIAL: 0x100E,
     SSID: 0x1045,
@@ -150,25 +192,25 @@ const WIFI_ENCRYPTION_TYPES = {
     AES: 0x0008
 }
 
-const TEXT_ENCODING_TYPE = {
-    UTF8: 0,
-    UTF16: 1
-}
-
 
 module.exports = {
     TLV_TYPES: TLV_TYPES,
     HEADER_FLAGS: HEADER_FLAGS,
 
+    TNF_CODES: TNF_CODES,
     TNF_VALUES: TNF_VALUES,
     WELL_KNOWN_TYPES: WELL_KNOWN_TYPES,
     EXTERNAL_TYPES: EXTERNAL_TYPES,
     MEDIA_TYPES: MEDIA_TYPES,
 
+    TEXT_ENCODING_TYPE: TEXT_ENCODING_TYPE,
+
     URI_PREFIX_CODES: URI_PREFIX_CODES,
     URI_PREFIXES: URI_PREFIXES,
+
+    BLUETOOTH_ATTR_CODES: BLUETOOTH_ATTRIBUTES,
+
     WIFI_FIELDS: WIFI_FIELDS,
     WIFI_AUTH_TYPES: WIFI_AUTH_TYPES,
-    WIFI_ENCRYPTION_TYPES: WIFI_ENCRYPTION_TYPES,
-    TEXT_ENCODING_TYPE: TEXT_ENCODING_TYPE
+    WIFI_ENCRYPTION_TYPES: WIFI_ENCRYPTION_TYPES
 }

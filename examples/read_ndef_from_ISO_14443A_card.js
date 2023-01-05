@@ -31,7 +31,7 @@ NfcDevices.init()
                             //read data from the selected start and end
                             card.readData(START_SECTOR, END_SECTOR)
                                 .then(data => {
-                                    console.log(`\nByte Data:\n${data.toHexString(' ')}\n\nRecords:`);
+                                    console.log(`\nByte Data:\n${data.toHexString(' ', true, 16)}\n\nRecords:`);
 
                                     //convert buffer to ndef message
                                     const msg = NdefMessage.fromBytes(data);

@@ -26,11 +26,11 @@ const {
     OPERATION_FAILED,
     INVALID_KEY_TYPE,
     INVALID_KEY,
-    INVALID_KEY_OR_KEY_TYPE,
-    WriteError,
+    INVALID_KEY_OR_KEY_TYPE
 } = require('../errors');
 const { NdefMessage } = require('../ndef/ndef');
 const { TLV_TYPES } = require('../ndef/NDEF_CONSTS');
+const { Mutex } = require('async-mutex');
 
 class ISO_14443_3A_Card extends Card {
     _cardTypeName = null;
@@ -47,6 +47,8 @@ class ISO_14443_3A_Card extends Card {
 
         this._cardTypeId = cardTypeId;
         this._cardTypeName = cardTypeName;
+
+        this._mutexKeys = new Mutex();
     }
 
 
@@ -226,10 +228,10 @@ class ISO_14443_3A_Card extends Card {
     }
 
 
-    readSector(sectorId, keyType = null, key = null, _class = STANDARD_CLASS) {
+    readSector(sectorID, keyType = null, key = null, _class = STANDARD_CLASS) {
         return new Promise((res, rej) => {
             if (!key) {
-                var sectorKeys = this._keys[sectorId];
+                var sectorKeys = this.getKnownSectorKeys(sectorID);
                 if ((!keyType || keyType == KEY_TYPE_A) && sectorKeys && sectorKeys.KEY_A) {
                     key = sectorKeys.KEY_A;
                     keyType = KEY_TYPE_A;
@@ -237,33 +239,38 @@ class ISO_14443_3A_Card extends Card {
                     key = sectorKeys.KEY_B;
                     keyType = KEY_TYPE_B;
                 } else {
-                    rej(`Invalid KeyType or Key for Sector ${sectorId}`);
+                    rej(`Invalid KeyType or Key for Sector ${sectorID}`);
                 }
             }
 
-            const startBlockNum = this.getStartBlock(sectorId), sectorSize = this.getSectorSize(sectorId);
+            const startBlockNum = this.getStartBlock(sectorID), sectorSize = this.getSectorSize(sectorID);
 
-            this.authenticate(startBlockNum, keyType, key)
-                .then(authenticated => {
-                    if (authenticated) {
-                        this.read(startBlockNum, sectorSize, _class)
-                            .then(response => {
-                                if (response.length == sectorSize) {
-                                    res(this.parseSector(sectorId, startBlockNum, response, sectorSize));
-                                } else {
-                                    rej(new ReadError(INVALID_RESPONSE, `Incorrect response size. Expected ${sectorSize}, Received ${response.length}`));
-                                }
-                            })
-                            .catch(rej);
-                    } else {
-                        rej(new AuthenticationError(INVALID_KEY_OR_KEY_TYPE));
-                    }
-                })
-                .catch(rej)
+            this._mutex
+                .acquire()
+                .then(release => {
+                    this.authenticate(startBlockNum, keyType, key)
+                        .then(authenticated => {
+                            if (authenticated) {
+                                this.read(startBlockNum, sectorSize, _class)
+                                    .then(response => {
+                                        if (response.length == sectorSize) {
+                                            res(this.parseSector(sectorID, startBlockNum, response, sectorSize));
+                                        } else {
+                                            rej(new ReadError(INVALID_RESPONSE, `Incorrect response size. Expected ${sectorSize}, Received ${response.length}`));
+                                        }
+                                    })
+                                    .catch(rej);
+                            } else {
+                                rej(new AuthenticationError(INVALID_KEY_OR_KEY_TYPE));
+                            }
+                        })
+                        .catch(rej)
+                        .finally(release);
+                });
         });
     }
 
-    readSectors(startSectorId = 1, endSectorId = -1, keyType = null, key = null, _class = STANDARD_CLASS) {
+    readSectors(startSectorID = 1, endSectorId = -1, keyType = null, key = null, _class = STANDARD_CLASS) {
         return new Promise((res, rej) => {
             const totalSectors = this.getTotalSectors();
 
@@ -271,11 +278,11 @@ class ISO_14443_3A_Card extends Card {
                 endSectorId = totalSectors - 1;
             }
 
-            if (startSectorId < 0 || startSectorId >= totalSectors) {
+            if (startSectorID < 0 || startSectorID >= totalSectors) {
                 rej('Invalid Start Sector Id');
             }
 
-            if (endSectorId < startSectorId || endSectorId >= totalSectors) {
+            if (endSectorId < startSectorID || endSectorId >= totalSectors) {
                 rej('Invalid End Sector Id');
             }
 
@@ -295,13 +302,13 @@ class ISO_14443_3A_Card extends Card {
                     .catch(rej);
             };
 
-            readSectorNum(startSectorId);
+            readSectorNum(startSectorID);
         });
     }
 
-    readData(startSectorId = 1, endSectorId = -1, keyType = null, key = null, _class = STANDARD_CLASS) {
+    readData(startSectorID = 1, endSectorId = -1, keyType = null, key = null, _class = STANDARD_CLASS) {
         return new Promise((res, rej) => {
-            this.readSectors(startSectorId, endSectorId, keyType, key, _class)
+            this.readSectors(startSectorID, endSectorId, keyType, key, _class)
                 .then(sectors => {
 
                     if (sectors.length > 1) {
@@ -320,8 +327,8 @@ class ISO_14443_3A_Card extends Card {
         });
     }
 
-    parseSector(sectorId, startBlockNum, response, sectorSize) {
-        CardSector.parse(sectorId, startBlockNum, response, sectorSize)
+    parseSector(sectorID, startBlockNum, response, sectorSize) {
+        CardSector.parse(sectorID, startBlockNum, response, sectorSize)
     }
 
 
@@ -336,7 +343,7 @@ class ISO_14443_3A_Card extends Card {
             }
 
             if (!key) {
-                var sectorKeys = this._keys[sectorId];
+                var sectorKeys = this.getKnownSectorKeys(sector.SectorID)
                 if ((!keyType || keyType == KEY_TYPE_A) && sectorKeys && sectorKeys.KEY_A) {
                     key = sectorKeys.KEY_A;
                     keyType = KEY_TYPE_A;
@@ -344,29 +351,35 @@ class ISO_14443_3A_Card extends Card {
                     key = sectorKeys.KEY_B;
                     keyType = KEY_TYPE_B;
                 } else {
-                    rej(`Invalid KeyType or Key for Sector ${sectorId}`);
+                    rej(`Invalid KeyType or Key for Sector ${sector.sectorID}`);
                 }
             }
 
-            this.authenticate(sector.StartBlockNum, keyType, key)
-                .then(authenticated => {
-                    if (authenticated) {
-                        if (sector.RawBytes) {
-                            this.write(sector.StartBlockNum, sector.RawBytes, _class, false, false, writeAsUpdate)
-                                .then(res)
-                                .catch(rej);
-                        } else if (sector.Data) {
-                            this.write(sector.StartBlockNum, sector.Data, _class, false, true, writeAsUpdate)
-                                .then(res)
-                                .catch(rej);
-                        } else {
-                            rej('There is no raw bytes or data ro write.')
-                        }
-                    } else {
-                        rej(new AuthenticationError(INVALID_KEY_OR_KEY_TYPE));
-                    }
-                })
-                .catch(rej)
+            this._mutex
+                .acquire()
+                .then(release => {
+                    this.authenticate(sector.StartBlockNum, keyType, key)
+                        .then(authenticated => {
+                            if (authenticated) {
+                                if (sector.RawBytes) {
+                                    this.write(sector.StartBlockNum, sector.RawBytes, _class, false, false, writeAsUpdate)
+                                        .then(res)
+                                        .catch(rej);
+                                } else if (sector.Data) {
+                                    this.write(sector.StartBlockNum, sector.Data, _class, false, true, writeAsUpdate)
+                                        .then(res)
+                                        .catch(rej);
+                                } else {
+                                    rej('There is no raw bytes or data ro write.')
+                                }
+                            } else {
+                                rej(new AuthenticationError(INVALID_KEY_OR_KEY_TYPE));
+                            }
+                        })
+                        .catch(rej)
+                        .finally(release);
+                });
+
         });
     }
 
@@ -376,25 +389,11 @@ class ISO_14443_3A_Card extends Card {
                 rej('Sectors must be in an Array');
             }
 
-            const totalSectors = this.getTotalSectors();
-
-            if (endSectorId < 0) {
-                endSectorId = totalSectors - 1;
-            }
-
-            if (startSectorId < 0 || startSectorId >= totalSectors) {
-                rej('Invalid Start Sector Id');
-            }
-
-            if (endSectorId < startSectorId || endSectorId >= totalSectors) {
-                rej('Invalid End Sector Id');
-            }
-
-            var cmds = [];
+            const commands = [];
 
             commands.forEach(sector => {
                 if (sector instanceof Sector) {
-                    cmds.push(this.writeSector(sector, keyType, key, _class, writeAsUpdate));
+                    commands.push(this.writeSector(sector, keyType, key, _class, writeAsUpdate));
                 } else {
                     rej('Object is not of instanceof Sector');
                 }
@@ -408,30 +407,26 @@ class ISO_14443_3A_Card extends Card {
         });
     }
 
-    writeData(data, startSectorId = 1, keyType = null, key = null,
+    writeData(data, startSectorID = 1, keyType = null, key = null,
         _class = STANDARD_CLASS, dataPadding = DATA_PADDING.SECTOR_DATA, writeAsUpdate = false) {
         return new Promise((res, rej) => {
-            const totalSectors = this.getTotalSectors();
-
-            if (startSectorId < 0 || startSectorId >= totalSectors) {
+            if (startSectorID < 0 || startSectorID >= this.getTotalSectors()) {
                 rej('Invalid Start Sector Id');
             }
 
-            var commands = [];
-
+            const commands = [];
             const blockSize = this.getBlockSize();
             const totalDataBlocks = data.length / blockSize;
-            var commands = [];
-            var sectorId = startSectorId;
+            var sectorID = startSectorID;
 
-            for (let b = 0; b < totalDataBlocks; b++) {
-                const startBlock = this.getStartBlock(sectorId);
-                const sectorDataSize = this.getSectorDataSize(sectorId);
+            for (let b = 0; b < totalDataBlocks;) {
+                const startBlock = this.getStartBlock(sectorID);
+                const sectorDataSize = this.getSectorDataSize(sectorID);
+                const blocksInSector = sectorDataSize / blockSize;
 
-                const start = b * sectorDataSize;
-                const end = (b + 1) * sectorDataSize;
+                const start = b * blockSize;
 
-                var part = data.subarray(start, end);
+                var part = data.subarray(start, start + sectorDataSize);
 
                 if (part.length < sectorDataSize && (part.length % blockSize) != 0 && dataPadding != DATA_PADDING.NONE) {
                     if (dataPadding == DATA_PADDING.BLOCK) {
@@ -445,8 +440,10 @@ class ISO_14443_3A_Card extends Card {
                     new Promise((res, rej) => {
                         var sKey = key, sKeyType = keyType;
 
+                        const dataToWrite = part;
+
                         if (!key) {
-                            var sectorKeys = this._keys[sectorId];
+                            var sectorKeys = this.getKnownSectorKeys(sectorID);
                             if ((!keyType || keyType == KEY_TYPE_A) && sectorKeys && sectorKeys.KEY_A) {
                                 sKey = sectorKeys.KEY_A;
                                 sKeyType = KEY_TYPE_A;
@@ -454,26 +451,33 @@ class ISO_14443_3A_Card extends Card {
                                 sKey = sectorKeys.KEY_B;
                                 sKeyType = KEY_TYPE_B;
                             } else {
-                                rej(`Invalid KeyType or Key for Sector ${sectorId}`);
+                                rej(`Invalid KeyType or Key for Sector ${sectorID}`);
                             }
                         }
 
-                        this.authenticate(startBlock, sKeyType, sKey)
-                            .then(authenticated => {
-                                if (authenticated) {
-                                    this.write(startBlock, part, _class, false, true, writeAsUpdate)
-                                        .then(res)
-                                        .catch(rej);
-                                } else {
-                                    rej(new AuthenticationError(INVALID_KEY_OR_KEY_TYPE));
-                                }
-                            })
-                            .catch(rej)
+                        this._mutex
+                            .acquire()
+                            .then(release => {
+                                this.authenticate(startBlock, sKeyType, sKey)
+                                    .then(authenticated => {
+                                        if (authenticated) {
+                                            this.write(startBlock, dataToWrite, _class, false, true, writeAsUpdate)
+                                                .then(res)
+                                                .catch(rej)
+                                                .finally(release);
+                                        } else {
+                                            rej(new AuthenticationError(INVALID_KEY_OR_KEY_TYPE));
+                                        }
+                                    })
+                                    .catch(rej);
+                            });
                     })
                 );
 
-                //add number of data blocks written
-                b += (sectorDataSize / blockSize);
+                //add number of data blocks written in the sector
+                b += blocksInSector;
+                //move to next sector
+                sectorID++;
             }
 
             return Promise.all(commands)
@@ -497,12 +501,12 @@ class ISO_14443_3A_Card extends Card {
                 payloadLength = Buffer.from([payload.length])
             else {
                 payloadLength = Buffer.alloc(3);
-                payloadLength.writeInt8(0xFF);
-                payloadLength.writeInt16BE(payload.length, 2);
+                payloadLength.writeUInt8(0xFF, 0);
+                payloadLength.writeUInt16BE(payload.length, 1);
             }
 
             const data = Buffer.concat([
-                Buffer.from([TLV_TYPES.NULL, TLV_TYPES.NULL, TLV_TYPES.NDEF_MSG]),
+                Buffer.from([TLV_TYPES.NDEF_MSG]),
                 payloadLength,
                 payload,
                 Buffer.from([TLV_TYPES.TERMINATOR])
@@ -515,24 +519,24 @@ class ISO_14443_3A_Card extends Card {
     }
 
 
-    updateSector(data, sectorId, keyType = null, key = null,
+    updateSector(data, sectorID, keyType = null, key = null,
         _class = STANDARD_CLASS, dataPadding = DATA_PADDING.SECTOR) {
-        return this.writeSector(data, sectorId, keyType, key, _class, dataPadding, true);
+        return this.writeSector(data, sectorID, keyType, key, _class, dataPadding, true);
     }
 
-    updateSectors(data, startSectorId = 1, endSectorId = -1, keyType = null, key = null,
+    updateSectors(data, startSectorID = 1, endSectorID = -1, keyType = null, key = null,
         _class = STANDARD_CLASS, dataPadding = DATA_PADDING.SECTOR) {
-        return this.writeSectors(data, startSectorId, endSectorId, keyType, key, _class, dataPadding, true);
+        return this.writeSectors(data, startSectorID, endSectorID, keyType, key, _class, dataPadding, true);
     }
 
-    updateSectorsData(data, startSectorId = 1, endSectorId = -1, keyType = null, key = null,
+    updateSectorsData(data, startSectorID = 1, endSectorID = -1, keyType = null, key = null,
         _class = STANDARD_CLASS, dataPadding = DATA_PADDING.SECTOR) {
-        return this.writeSectorsData(data, startSectorId, endSectorId, keyType, key, _class, dataPadding, true);
+        return this.writeSectorsData(data, startSectorID, endSectorID, keyType, key, _class, dataPadding, true);
     }
 
-    updateData(data, startSectorId = 1, keyType = null, key = null,
+    updateData(data, startSectorID = 1, keyType = null, key = null,
         _class = STANDARD_CLASS, dataPadding = DATA_PADDING.SECTOR_DATA) {
-        return this.writeData(data, startSectorId, keyType, key, _class, dataPadding, true);
+        return this.writeData(data, startSectorID, keyType, key, _class, dataPadding, true);
     }
 
 
@@ -543,7 +547,7 @@ class ISO_14443_3A_Card extends Card {
     }
 
 
-    tryGetKeys(tryKeys = DEFAULT_KEYS, sectorId = 0) {
+    tryGetKeys(tryKeys = DEFAULT_KEYS, sectorID = 0) {
         return new Promise((res, rej) => {
             const dks = {
                 KEY_A: null,
@@ -553,36 +557,42 @@ class ISO_14443_3A_Card extends Card {
             var keys = tryKeys.slice();
 
             const checkKey = (keyType, key) => {
-                this.authenticate(this.getStartBlock(sectorId), keyType, key)
-                    .then(authed => {
-                        if (keyType == KEY_TYPE_A) {
-                            this.setKey(KEY_TYPE_A, key, sectorId);
-                            dks.KEY_A = key;
-                            keys = tryKeys.slice();
-                            checkKey(KEY_TYPE_B, keys.pop());
-                        } else {
-                            this.setKey(KEY_TYPE_B, key, sectorId);
-                            dks.KEY_B = key;
-                            res(dks);
-                        }
-                    })
-                    .catch(err => {
-                        if (err instanceof AuthenticationError && err.code == GENERAL_APDU_RESPONSE_CODES.VERIFY_FAILED) {
-                            if (keys.length > 0) {
-                                checkKey(keyType, keys.pop());
-                            } else if (keyType == KEY_TYPE_A) {
-                                keys = tryKeys.slice();
-                                checkKey(KEY_TYPE_B, keys.pop());
-                            } else {
-                                if (dks.KEY_A || dks.KEY_B) {
-                                    res(dks);
+                this._mutex
+                    .acquire()
+                    .then(release => {
+                        this.authenticate(this.getStartBlock(sectorID), keyType, key)
+                            .then(authed => {
+                                release();
+                                if (keyType == KEY_TYPE_A) {
+                                    this.setKey(KEY_TYPE_A, key, sectorID);
+                                    dks.KEY_A = key;
+                                    keys = tryKeys.slice();
+                                    checkKey(KEY_TYPE_B, keys.pop());
                                 } else {
-                                    rej('No Keys Found');
+                                    this.setKey(KEY_TYPE_B, key, sectorID);
+                                    dks.KEY_B = key;
+                                    res(dks);
                                 }
-                            }
-                        } else {
-                            rej(err);
-                        }
+                            })
+                            .catch(err => {
+                                release();
+                                if (err instanceof AuthenticationError && err.code == GENERAL_APDU_RESPONSE_CODES.VERIFY_FAILED) {
+                                    if (keys.length > 0) {
+                                        checkKey(keyType, keys.pop());
+                                    } else if (keyType == KEY_TYPE_A) {
+                                        keys = tryKeys.slice();
+                                        checkKey(KEY_TYPE_B, keys.pop());
+                                    } else {
+                                        if (dks.KEY_A || dks.KEY_B) {
+                                            res(dks);
+                                        } else {
+                                            rej('No Keys Found');
+                                        }
+                                    }
+                                } else {
+                                    rej(err);
+                                }
+                            });
                     });
             }
 
@@ -637,16 +647,16 @@ class ISO_14443_3A_Card extends Card {
     }
 
 
-    setKey(keyType, key, sectorId) {
-        if (sectorId == null || sectorId == undefined || sectorId < 0 || sectorId >= this.getTotalSectors()) {
-            throw `Invalid Sector ID ${sectorId}`;
+    setKey(keyType, key, sectorID) {
+        if (sectorID == null || sectorID == undefined || sectorID < 0 || sectorID >= this.getTotalSectors()) {
+            throw `Invalid Sector ID ${sectorID}`;
         }
 
         if (!this._keyIsValid(key)) {
             throw 'Key is invalid. Must be in hex and have 12 characters';
         }
 
-        var sectorKeys = this.getKnownSectorKeys(sectorId);
+        const sectorKeys = this.getKnownSectorKeys(sectorID);
 
         if (keyType == KEY_TYPE_A) {
             sectorKeys.KEY_A = key;
@@ -656,12 +666,12 @@ class ISO_14443_3A_Card extends Card {
             throw INVALID_KEY_TYPE;
         }
 
-        this._keys[sectorId] = sectorKeys;
+        this._keys[sectorID] = sectorKeys;
     }
 
-    setKeys(keyA, keyB, sectorId = -1) {
-        if (sectorId == null || sectorId == undefined || sectorId < -1 || sectorId >= this.getTotalSectors()) {
-            throw `Invalid Sector ID ${sectorId}`;
+    setKeys(keyA, keyB, sectorID = -1) {
+        if (sectorID == null || sectorID == undefined || sectorID < -1 || sectorID >= this.getTotalSectors()) {
+            throw `Invalid Sector ID ${sectorID}`;
         }
 
         if (!this._keyIsValid(keyA)) {
@@ -681,18 +691,18 @@ class ISO_14443_3A_Card extends Card {
             this._keys[sid] = sectorKeys;
         }
 
-        if (sectorId < 0) {
+        if (sectorID < 0) {
             const totalNumberOfSectors = this.getTotalSectors();
             for (var sid = 0; sid < totalNumberOfSectors; sid++) {
                 setKeysDirect(keyA, keyB, sid);
             }
         } else {
-            setKeysDirect(keyA, keyB, sectorId);
+            setKeysDirect(keyA, keyB, sectorID);
         }
     }
 
     setAllKeys(allKeys) {
-        const setKeysfromArray = (keys, sectorId) => {
+        const setKeysfromArray = (keys, sectorID) => {
             if (!keys) {
                 return;
             }
@@ -727,14 +737,14 @@ class ISO_14443_3A_Card extends Card {
             }
 
             if (keyA !== null && !this._keyIsValid(keyA)) {
-                throw `Key A in Sector ${sectorId} is invalid`;
+                throw `Key A in Sector ${sectorID} is invalid`;
             }
 
             if (keyB !== null && !this._keyIsValid(keyB)) {
-                throw `Key B in Sector ${sectorId} is invalid`;
+                throw `Key B in Sector ${sectorID} is invalid`;
             }
 
-            this.setKeys(keyA, keyB, sectorId);
+            this.setKeys(keyA, keyB, sectorID);
         }
 
         const totalNumberOfSectors = this.getTotalSectors();
@@ -766,19 +776,19 @@ class ISO_14443_3A_Card extends Card {
         return keys;
     }
 
-    getKnownSectorKeys(sectorId) {
-        if (sectorId < 0 || sectorId >= this.getTotalSectors()) {
-            throw `Invalid Sector ID ${sectorId}`;
+    getKnownSectorKeys(sectorID) {
+        if (sectorID < 0 || sectorID >= this.getTotalSectors()) {
+            throw `Invalid Sector ID ${sectorID}`;
         }
 
-        var sectorKeysSelf = this._keys[sectorId], sectorKeys = {};
+        var sectorKeysSelf = this._keys[sectorID], sectorKeys = {};
 
         if (!sectorKeysSelf) {
             sectorKeysSelf = {
                 KEY_A: null,
                 KEY_B: null
             }
-            this._keys[sectorId] = sectorKeysSelf;
+            this._keys[sectorID] = sectorKeysSelf;
         }
 
         Object.assign(sectorKeys, sectorKeysSelf);
