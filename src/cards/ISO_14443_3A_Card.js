@@ -495,27 +495,31 @@ class ISO_14443_3A_Card extends Card {
                 rej('Message is not of type Ndef');
             }
 
-            const payload = msg.toBytes();
-            var payloadLength;
-            if (payload.length < 255)
-                payloadLength = Buffer.from([payload.length])
-            else {
-                payloadLength = Buffer.alloc(3);
-                payloadLength.writeUInt8(0xFF, 0);
-                payloadLength.writeUInt16BE(payload.length, 1);
-            }
-
-            const data = Buffer.concat([
-                Buffer.from([TLV_TYPES.NDEF_MSG]),
-                payloadLength,
-                payload,
-                Buffer.from([TLV_TYPES.TERMINATOR])
-            ]);
+            const data = this._getNdefData(msg);
 
             this.writeData(data, startSectorId, keyType, key, _class, dataPadding, writeAsUpdate)
                 .then(res)
                 .catch(rej);
         });
+    }
+
+    _getNdefData(msg) {
+        const payload = msg.toBytes();
+        var payloadLength;
+        if (payload.length < 255)
+            payloadLength = Buffer.from([payload.length])
+        else {
+            payloadLength = Buffer.alloc(3);
+            payloadLength.writeUInt8(0xFF, 0);
+            payloadLength.writeUInt16BE(payload.length, 1);
+        }
+
+        return Buffer.concat([
+            Buffer.from([TLV_TYPES.NDEF_MSG]),
+            payloadLength,
+            payload,
+            Buffer.from([TLV_TYPES.TERMINATOR])
+        ]);
     }
 
 

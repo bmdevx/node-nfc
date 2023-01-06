@@ -48,7 +48,7 @@ class NdefRecord {
     constructor(payload, id = null, typeNameFormat = null, type = null, recordNumber = null) {
         this._payload = payload;
         this._id = id;
-        this._typeNameFormat = typeNameFormat == null ? TNF_VALUES.UNKNOWN : typeNameFormat;
+        this._typeNameFormat = typeNameFormat == null ? TNF_CODES.UNKNOWN : typeNameFormat;
         this._type = type == null ? '?' : type;
         this._recNum = recordNumber;
     }
@@ -65,7 +65,7 @@ class NdefRecord {
 
 
     toString() {
-        return `Record #${this.RecordNumber} [RID:${this.ID}, TNF:${TNF_VALUES[this.TypeNameFormat] != undefined ? TNF_VALUES[this.TypeNameFormat] : this.TypeNameFormat}, Type:${this.Type}]: ${new TextDecoder().decode(this.Payload)}`
+        return `Record #${this.RecordNumber} [RID:${this.ID}, TNF:${TNF_CODES[this.TypeNameFormat] != undefined ? TNF_CODES[this.TypeNameFormat] : this.TypeNameFormat}, Type:${this.Type}]: ${new TextDecoder().decode(this.Payload)}`
     }
 
     toBytes() {
@@ -75,7 +75,7 @@ class NdefRecord {
 
 class TextRecord extends NdefRecord {
     constructor(text = null, language = null, encodingType = null, id = null, payload = null, recordNumber = null) {
-        super(payload, id, TNF_VALUES.WELL_KNOWN, WELL_KNOWN_TYPES.TEXT, recordNumber);
+        super(payload, id, TNF_CODES.WELL_KNOWN, WELL_KNOWN_TYPES.TEXT, recordNumber);
 
         this._encodingType = encodingType;
         this._language = language;
@@ -109,7 +109,7 @@ class TextRecord extends NdefRecord {
         //set language code length to first byte
         eb |= (0x3f & this.Language.length);
 
-        return Buffer.concat([Buffer.from([eb]), Buffer.from(this.Language), Buffer.from(this.Text.trim(), this.Encoding)])
+        return Buffer.concat([Buffer.from([eb]), Buffer.from(this.Language), Buffer.from(this.Text, this.Encoding)])
     }
 
     static fromBytes(payload, id = null, recordNumber = null) {
@@ -138,7 +138,7 @@ class UriRecord extends NdefRecord {
     static URI_PREFIX_CODES = URI_PREFIX_CODES;
 
     constructor(uriId, uriContent, id = null, payload = null, recordNumber = null) {
-        super(payload, id, TNF_VALUES.WELL_KNOWN, WELL_KNOWN_TYPES.URI, recordNumber);
+        super(payload, id, TNF_CODES.WELL_KNOWN, WELL_KNOWN_TYPES.URI, recordNumber);
 
         this._uriId = uriId;
         this._uriContent = uriContent;
@@ -156,7 +156,7 @@ class UriRecord extends NdefRecord {
 
 
     toBytes() {
-        return Buffer.concat([Buffer.from([this.UriId]), Buffer.from(this.UriContent.trim(), 'utf8')]);
+        return Buffer.concat([Buffer.from([this.UriId]), Buffer.from(this.UriContent, 'utf8')]);
     }
 
     static fromBytes(payload, id = null, recordNumber = null) {
@@ -183,7 +183,7 @@ class UriRecord extends NdefRecord {
 
 class VCardRecord extends NdefRecord {
     constructor(tags, id = null, payload = null, recordNumber = null) {
-        super(payload, id, TNF_VALUES.MEDIA, MEDIA_TYPES.VCARD, recordNumber);
+        super(payload, id, TNF_CODES.MEDIA, MEDIA_TYPES.VCARD, recordNumber);
 
         if (Array.isArray(tags)) {
             this._tags = tags;
@@ -244,7 +244,7 @@ class VCardRecord extends NdefRecord {
             } else {
                 const idx = part.indexOf(':');
                 const attr = part.substring(0, idx);
-                const value = part.substring(idx + 1).trim();
+                const value = part.substring(idx + 1);
 
                 tags.push([attr, value]);
             }
@@ -270,7 +270,7 @@ class VCardRecord extends NdefRecord {
 
 class AndroidAppRecord extends NdefRecord {
     constructor(packageName, id = null, payload = null, recordNumber = null) {
-        super(payload, id, TNF_VALUES.EXTERNAL, EXTERNAL_TYPES.ANDROID_APP, recordNumber);
+        super(payload, id, TNF_CODES.EXTERNAL, EXTERNAL_TYPES.ANDROID_APP, recordNumber);
 
         this._packageName = packageName;
     }
@@ -300,13 +300,13 @@ class AndroidAppRecord extends NdefRecord {
 
 class BlueToothRecord extends NdefRecord {
     constructor(addressRaw, oob = [], id = null, payload = null, recordNumber = null) {
-        super(payload, id, TNF_VALUES.MEDIA, MEDIA_TYPES.BLUETOOTH, recordNumber);
+        super(payload, id, TNF_CODES.MEDIA, MEDIA_TYPES.BLUETOOTH, recordNumber);
 
         this._addressRaw = addressRaw;
         this._oob = oob;
     }
 
-    get Address() { return utils.toHexString(this._addressRaw.reverse(), ':'); }
+    get Address() { return utils.toHexString(this._addressRaw, ':', -1, true, true); }
     set Address(value) {
 
         if (!(value.match(MAC_REGEX) || (value.length == 12 && value.match(HEX_REGEX)))) {
@@ -347,23 +347,23 @@ class BlueToothRecord extends NdefRecord {
             });
         }
 
-        var addrRaw = Buffer.alloc(2);
-        addrRaw.writeUInt16BE(this.OOB != null ? this.OOB.length : 0);
+        const payLength = Buffer.alloc(2);
+        payLength.writeUInt16LE(this.OOB != null ? this.OOB.length + 8 : 8);
 
         return Buffer.concat([
-            addrRaw.reverse(),
-            this.AddressRaw,
+            payLength,
+            this._addressRaw,
             Buffer.concat(oobData)
         ])
     }
 
     static fromBytes(payload, id = null, recordNumber = null) {
-        var btPayloadLength = Buffer.from(new Uint8Array(payload.subarray(0, 2).reverse())).readInt16BE();
+        var oobDataLength = payload.readUInt16LE() - 8;
 
         const oobs = [];
 
-        if (btPayloadLength > 0) {
-            var idx = 10, dl, code, oobPay;
+        if (oobDataLength > 0) {
+            var idx = 8, dl, code, oobPay;
 
             for (; idx < payload.length;) {
                 dl = payload.readUInt8(idx);
@@ -444,7 +444,7 @@ class WiFiRecord extends NdefRecord {
     static WIFI_ENCRYPTION_TYPES = WIFI_ENCRYPTION_TYPES;
 
     constructor(ssid, networkKey, authTypeCode, encTypeCode, macRaw, extended = null, id = null, payload = null, recordNumber = null) {
-        super(payload, id, TNF_VALUES.MEDIA, MEDIA_TYPES.WIFI, recordNumber);
+        super(payload, id, TNF_CODES.MEDIA, MEDIA_TYPES.WIFI, recordNumber);
 
         this._ssid = ssid;
         this._networkKey = networkKey;
@@ -546,35 +546,41 @@ class WiFiRecord extends NdefRecord {
 
     toBytes() {
         const parts = []
-        var tmpBuf;
+        const typeBuf = Buffer.alloc(4), tmpBuf = Buffer.alloc(2);
 
-        parts.push(Buffer.from([WIFI_FIELDS.SSID, this.SSID.length]));
-        parts.push(Buffer.from(this.SSID, 'utf8'));
+        typeBuf.writeUint16BE(WIFI_FIELDS.NETWORK_INDEX);
+        typeBuf.writeUint16BE(1, 2);
+        parts.push(Buffer.concat([typeBuf, Buffer.from([1])]));
 
-        parts.push(Buffer.from([WIFI_FIELDS.NETWORK_KEY, this.NetworkKey.length]));
-        parts.push(Buffer.from(this.NetworkKey, 'utf8'));
+        typeBuf.writeUint16BE(WIFI_FIELDS.SSID);
+        typeBuf.writeUint16BE(this.SSID.length, 2);
+        parts.push(Buffer.concat([typeBuf, Buffer.from(this.SSID, 'utf8')]));
 
-        parts.push(Buffer.from([WIFI_FIELDS.AUTH_TYPE, 2]));
-        tmpBuf = Buffer.alloc(2);
+        typeBuf.writeUint16BE(WIFI_FIELDS.AUTH_TYPE);
+        typeBuf.writeUint16BE(2, 2);
         tmpBuf.writeUint16BE(this.AuthTypeCode);
-        parts.push(tmpBuf);
+        parts.push(Buffer.concat([typeBuf, tmpBuf]));
 
-        parts.push(Buffer.from([WIFI_FIELDS.NETWORK_INDEX, 1]));
-        parts.push(Buffer.from([1]));
-
-        parts.push(Buffer.from([WIFI_FIELDS.ENCRYPTION_TYPE, 2]));
-        tmpBuf = Buffer.alloc(2)
+        typeBuf.writeUint16BE(WIFI_FIELDS.ENCRYPTION_TYPE);
+        typeBuf.writeUint16BE(2, 2);
         tmpBuf.writeUint16BE(this.EncryptionTypeCode);
-        parts.push(tmpBuf);
+        parts.push(Buffer.concat([typeBuf, tmpBuf]));
 
-        parts.push(Buffer.from([WIFI_FIELDS.MAC_ADDRESS, this._macRaw.length]));
-        tmpBuf = Buffer.alloc(2)
-        tmpBuf.writeUint16BE(this._macRaw);
-        parts.push(tmpBuf);
+        typeBuf.writeUint16BE(WIFI_FIELDS.NETWORK_KEY);
+        typeBuf.writeUint16BE(this.NetworkKey.length, 2);
+        parts.push(Buffer.concat([typeBuf, Buffer.from(this.NetworkKey, 'utf8')]));
+
+        typeBuf.writeUint16BE(WIFI_FIELDS.MAC_ADDRESS);
+        typeBuf.writeUint16BE(this._macRaw.length, 2);
+        parts.push(Buffer.concat([typeBuf, this._macRaw]));
 
         //todo extended
 
-        return Buffer.concat(parts);
+        const data = Buffer.concat(parts);
+        typeBuf.writeUint16BE(WIFI_FIELDS.CREDENTIAL);
+        typeBuf.writeUint16BE(data.length, 2);
+
+        return Buffer.concat([typeBuf, data]);
     }
 
     static fromBytes(payload, id = null, recordNumber = null) {

@@ -242,6 +242,8 @@ class NdefMessage {
 
             //Payload
             chunks.push(payload);
+
+            recordCount++;
         });
 
         return Buffer.concat(chunks);

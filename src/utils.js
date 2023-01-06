@@ -1,4 +1,4 @@
-function toHexString(byteArray, delimeter = ' ', toUpperCase = true, breakAt = -1) {
+function toHexString(byteArray, delimeter = ' ', breakAt = -1, toUpperCase = true, reverse = false) {
     var s = '';//'0x';
 
     const type = typeof byteArray;
@@ -6,10 +6,16 @@ function toHexString(byteArray, delimeter = ' ', toUpperCase = true, breakAt = -
         byteArray = new Uint8Array(byteArray);
     }
 
-    for (var i = 0; i < byteArray.length; i++) {
-        s += (
-            '0' + (byteArray[i] & 0xFF).toString(16)).slice(-2) + ((breakAt > 0 && (i + 1) % breakAt == 0) ? '\n' : (i < byteArray.length - 1 ? delimeter : ''));
+    if (reverse) {
+        for (var i = byteArray.length - 1; i > -1; i--) {
+            s += ('0' + (byteArray[i] & 0xFF).toString(16)).slice(-2) + ((breakAt > 0 && (i - 1) % breakAt == 0) ? '\n' : (i > 0 ? delimeter : ''));
+        }
+    } else {
+        for (var i = 0; i < byteArray.length; i++) {
+            s += ('0' + (byteArray[i] & 0xFF).toString(16)).slice(-2) + ((breakAt > 0 && (i + 1) % breakAt == 0) ? '\n' : (i < byteArray.length - 1 ? delimeter : ''));
+        }
     }
+
 
     return toUpperCase ? s.toUpperCase() : s;
 }
