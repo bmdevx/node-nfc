@@ -1,8 +1,15 @@
 const { ISO_14443_3A_Card } = require('./ISO_14443_3A_Card');
 const { CardSector } = require('./Card');
 const CONSTS = require('./consts');
-const { CARD_TYPE_IDS } = CONSTS.CARD_CONSTS;
+const { KEY_TYPE_A, KEY_TYPE_B } = require('./CARD_CONSTS');
 const {
+    CARD_TYPE_IDS,
+    ACCESS_TYPE,
+    ACCESS_GROUP
+} = CONSTS.CARD_CONSTS;
+const {
+    ACCESS,
+
     BLOCK_SIZE,
     BLOCKS_IN_SMALL_SECTOR,
     BLOCKS_IN_LARGE_SECTOR,
@@ -11,6 +18,8 @@ const {
     SMALL_SECTOR_SIZE,
     LARGE_SECTOR_SIZE,
     PACKET_SIZE,
+
+    MIFARE_MFC_SECTOR_DATA_SIZE,
 
     MIFARE_1K_TOTAL_SECTORS,
     MIFARE_1K_TOTAL_BLOCKS,
@@ -29,6 +38,164 @@ class MifareClassicCard extends ISO_14443_3A_Card {
         super(reader, atr, cardTypeId, cardType);
     }
 
+    getKeyAndTypeForAccess(block, sectorID, sectorKeys, accessType = ACCESS_TYPE.READ, accessGroup = ACCESS_GROUP.DATA) {
+        var key = null, keyType = null;
+
+        //todo if access bits buffer
+        if (typeof sectorKeys.ACCESS != 'number') {
+            if (sectorKeys.KEY_A) {
+                key = sectorKeys.KEY_A;
+                keyType = KEY_TYPE_A;
+            } else if (sectorKeys.KEY_B) {
+                key = sectorKeys.KEY_B;
+                keyType = KEY_TYPE_B;
+            } else {
+                throw `Invalid KeyType or Key for Sector ${sectorID}`;
+            }
+        } else {
+            const blocksInSector = this.getBlocksInSector(sectorID);
+            const dataBlocksInSector = blocksInSector - 1;
+            const localBlock = block % blocksInSector;
+            var access = null;
+            var blockGroup = null;
+
+
+            if (block < blocksInSector) {
+                for (var i = 0; i < 3; i++) {
+                    if (localBlock >= (dataBlocksInSector / 3) * i && localBlock < (dataBlocksInSector / 3 * (i + 1))) {
+                        blockGroup = i;
+                        break;
+                    }
+                }
+
+                if (blockGroup >= 0) {
+                    const blockAccessBits = this._getBlockAccessBits(sectorKeys.ACCESS, blockGroup);
+                    access = ACCESS.BLOCKS.MAP[blockAccessBits][accessType];
+                } else {
+                    throw 'Invalid Block Group';
+                }
+            } else {
+                blockGroup = 3;
+            }
+
+            if (accessGroup == ACCESS_GROUP.DATA) {
+                const blockAccessBits = this._getBlockAccessBits(sectorKeys.ACCESS, blockGroup);
+                access = ACCESS.BLOCKS.MAP[blockAccessBits][accessType];
+            } else {
+                const blockAccessBits = this._getBlockAccessBits(sectorKeys.ACCESS, 3);
+                access = ACCESS.TRAILER.MAP[blockAccessBits][accessGroup][accessType];
+            }
+
+            if (access && access.length > 0) {
+                for (const i in access) {
+                    const kt = access[i];
+                    if (sectorKeys[kt]) {
+                        key = sectorKeys[kt];
+                        keyType = kt;
+                        break;
+                    }
+                }
+            }
+
+            if (!key) {
+                throw `No Valid keys found to ${[accessType]} to block ${block}`
+            }
+
+            if (keyType == 'KEY_A') {
+                keyType = KEY_TYPE_A;
+            } else if (keyType == 'KEY_B') {
+                keyType = KEY_TYPE_B;
+            }
+
+            return [key, keyType];
+        }
+    }
+
+    getExtraKeyData(dks, sectorID, _class) {
+        return new Promise((res, rej) => {
+            const startBlock = this.getStartBlock(sectorID);
+
+            const checkTrailer = (keyType, key) => {
+                return new Promise((res, rej) => {
+                    const trailerBlock = startBlock + this.getBlocksInSector(sectorID) - 1;
+
+                    this.authenticate(trailerBlock, keyType, key)
+                        .then(authed => {
+                            const blockSize = this.getBlockSize(trailerBlock)
+                            this.read(trailerBlock, blockSize, _class)
+                                .then(data => {
+                                    if (data && data.length == blockSize) {
+                                        const accessBits = data.readUint32BE(6, 4);
+                                        res(accessBits);
+                                    }
+                                }).catch(rej);
+
+                        })
+                        .catch(rej);
+                });
+            }
+
+            this._mutex
+                .acquire()
+                .then(release => {
+                    if (dks.KEY_A) {
+                        checkTrailer(KEY_TYPE_A, dks.KEY_A)
+                            .then(ab => {
+                                dks.ACCESS = ab;
+                                release();
+                                res(dks);
+                            }).catch(err => {
+                                if (dks.KEY_B) {
+                                    checkTrailer(KEY_TYPE_B, dks.KEY_B)
+                                        .then(ab => {
+                                            dks.ACCESS = ab;
+                                        })
+                                        .catch(err => {
+                                        })
+                                        .finally(_ => {
+                                            release();
+                                            res(dks);
+                                        })
+                                } else {
+                                    release();
+                                    res(dks);
+                                }
+                            });
+                    } else {
+                        checkTrailer(KEY_TYPE_B, dks.KEY_B)
+                            .then(ab => {
+                                dks.ACCESS = ab;
+                            })
+                            .catch(err => {
+                            })
+                            .finally(_ => {
+                                release();
+                                res(dks);
+                            })
+                    }
+                });
+        });
+    }
+
+
+
+    /*
+        C[bit #, block #]
+        CX3 is access bits
+        Order: byte 7 [bit 4-7], byte 8 [bit 0-3], byte 8 [bit 4-7]
+        Byte 6 [C23][C22][C21][C20][C13][C12][C11][C00]
+        Byte 7 [C13][C12][C11][C10][C33][C32][C31][C30]
+        Byte 8 [C33][C32][C31][C30][C23][C22][C21][C20]
+        Byte 9 [USER DATA]
+    */
+
+    _getBlockAccessBits(accessBits, blockGroupNum) {
+        var ab = 0x00;
+        ab |= ((accessBits >> (20 + blockGroupNum) & 1) << 0); //c1
+        ab |= ((accessBits >> (8 + blockGroupNum) & 1) << 1);  //c2
+        ab |= ((accessBits >> (12 + blockGroupNum) & 1) << 2); //c3
+        return ab;
+    }
 
     getTotalSectors() {
         if (this.CardTypeId == CARD_TYPE_IDS.Mifare_1K) {
@@ -68,6 +235,14 @@ class MifareClassicCard extends ISO_14443_3A_Card {
         }
     }
 
+    getDataStartBlock(sectorID) {
+        if (sectorID == 0) {
+            startBlockNum = 1;
+        } else {
+            return MifareClassicCard.getMifareClassicStartBlock(this.CardTypeId, sectorID);
+        }
+    }
+
     getSectorSize(sectorID) {
         return MifareClassicCard.getMifareClassicSectorSize(this.CardTypeId, sectorID);
     }
@@ -77,16 +252,23 @@ class MifareClassicCard extends ISO_14443_3A_Card {
             LARGE_SECTOR_SIZE : SMALL_SECTOR_SIZE;
     }
 
+    getBlocksInSector(sectorID) {
+        return (this.CardTypeId == CARD_TYPE_IDS.Mifare_4K && sectorID >= MIFARE_4K_TOTAL_SMALL_SECTORS) ?
+            BLOCKS_IN_LARGE_SECTOR : BLOCKS_IN_SMALL_SECTOR;
+    }
+
     getSectorDataSize(sectorID) {
         if (this.CardTypeId == CARD_TYPE_IDS.Mifare_1K) {
-            if (sectorID >= 0 && sectorID < MIFARE_1K_TOTAL_SECTORS) {
+            if (sectorID == 0) {
+                return MIFARE_MFC_SECTOR_DATA_SIZE;
+            } else if (sectorID >= 1 && sectorID < MIFARE_1K_TOTAL_SECTORS) {
                 return MIFARE_1K_SECTOR_DATA_SIZE;
             } else {
                 rej('Invalid Sector Id');
             }
         } else if (this.CardTypeId == CARD_TYPE_IDS.Mifare_4K) {
-            if (sectorID >= 0 && sectorID < MIFARE_4K_TOTAL_SECTORS) {
-                if (sectorID >= 0 && sectorID < MIFARE_4K_TOTAL_SMALL_SECTORS) {
+            if (sectorID >= 1 && sectorID < MIFARE_4K_TOTAL_SECTORS) {
+                if (sectorID >= 1 && sectorID < MIFARE_4K_TOTAL_SMALL_SECTORS) {
                     return MIFARE_4K_SMALL_SECTOR_DATA_SIZE;
                 } else {
                     return MIFARE_4K_LARGE_SECTOR_DATA_SIZE;

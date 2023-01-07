@@ -311,12 +311,16 @@ class Card {
         if (sectorID >= 0 && sectorID < DEFAULT_TOTAL_SECTORS) {
             startBlockNum = sectorID * DEFAULT_BLOCKS_IN_SECTOR;
         } else {
-            rej('Invalid Sector Id');
+            throw 'Invalid Sector Id';
         }
     }
 
     getSectorSize(sectorID) {
         return DEFAULT_SECTOR_SIZE;
+    }
+
+    getBlocksInSector(sectorID) {
+        return DEFAULT_BLOCKS_IN_SECTOR;
     }
 
     getSectorDataSize(sectorID) {

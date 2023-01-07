@@ -32,11 +32,11 @@ NfcDevices.init()
                         .catch(console.error);
 
                     // leaving empty will automatically try the default 4 keys on all sectors.
-                    card.tryGetAllKeys(TRY_KEYS)
-                        .then(keys => {
-                            console.log(`Keys: ${JSON.stringify(keys, null, 2)}`);
-                        })
-                        .catch(console.error);
+                    // card.tryGetAllKeys(TRY_KEYS)
+                    //     .then(keys => {
+                    //         console.log(`Keys: ${JSON.stringify(keys, null, 2)}`);
+                    //     })
+                    //     .catch(console.error);
                 } else {
                     console.log('Card is not of type ISO_14443A.')
                 }

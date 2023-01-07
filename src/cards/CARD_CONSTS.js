@@ -165,6 +165,21 @@ const DEFAULT_KEYS = [
     'A0A1A2A3A4A5'
 ]
 
+const ACCESS_GROUP = {
+    DATA: 'DATA',
+    ACCESS_BITS: 'ACCESS_BITS',
+    KEY_A: 'KEY_A',
+    KEY_B: 'KEY_B'
+}
+
+const ACCESS_TYPE = {
+    READ: 'READ',
+    WRITE: 'WRITE',
+    INCREMENT: 'INCREMENT',
+    DTR: 'DTR'
+}
+
+
 const FORMAT_TYPE = {
     ZERO: 0x00,
     FULL: 0xFF,
@@ -203,6 +218,9 @@ module.exports = {
     KEY_TYPE_A: KEY_TYPE_A,
     KEY_TYPE_B: KEY_TYPE_B,
     DEFAULT_KEYS: DEFAULT_KEYS,
+
+    ACCESS_TYPE: ACCESS_TYPE,
+    ACCESS_GROUP,
 
     FORMAT_TYPE: FORMAT_TYPE,
     DATA_PADDING: DATA_PADDING
